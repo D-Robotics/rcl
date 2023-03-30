@@ -350,10 +350,38 @@ rcl_send_response(
   const rcl_service_options_t * options = rcl_service_get_options(service);
   RCL_CHECK_FOR_NULL_WITH_MSG(options, "Failed to get service options", return RCL_RET_ERROR);
 
-  if (rmw_send_response(
-      service->impl->rmw_handle, request_header, ros_response) != RMW_RET_OK)
+  rmw_ret_t ret = rmw_send_response(
+      service->impl->rmw_handle, request_header, ros_response);
+  if (RMW_RET_TIMEOUT == ret) {
+    int retry_count = 5;
+    RCUTILS_LOG_WARN_NAMED(
+      ROS_PACKAGE_NAME,
+      "rmw_send_response timeout, try to resend with retry count %d",
+      retry_count);
+    for (int idx = 0; idx < retry_count; idx++) {
+      ret = rmw_send_response(
+          service->impl->rmw_handle, request_header, ros_response);
+      RCUTILS_LOG_WARN_NAMED(
+        ROS_PACKAGE_NAME,
+        "rmw_send_response ret %d, retry idx %d/%d",
+        ret, idx, retry_count);
+      if (ret != RMW_RET_TIMEOUT) {
+        break;
+      }
+    }
+  }
+
+  if (ret != RMW_RET_OK)
   {
+    RCUTILS_LOG_ERROR_NAMED(
+      ROS_PACKAGE_NAME,
+      "rmw_send_response ret %d",
+      ret);
     RCL_SET_ERROR_MSG(rmw_get_error_string().str);
+    if (RMW_RET_TIMEOUT == ret) {
+      return RCL_RET_TIMEOUT;
+    }
+
     return RCL_RET_ERROR;
   }
   return RCL_RET_OK;
